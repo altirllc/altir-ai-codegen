@@ -1,5 +1,5 @@
 [project]
-name = "altir-ai-codegen"
+name = "aicodeassistant"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -14,4 +14,5 @@ dependencies = [
     "langchain-openai>=0.3.28",
     "langgraph==0.6.0",
     "pathspec>=0.12.1",
+    "questionary>=2.1.0",
 ]
