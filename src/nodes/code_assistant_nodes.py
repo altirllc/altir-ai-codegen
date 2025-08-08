@@ -29,6 +29,7 @@ class CodeAssistantNodes:
             self.llm = GroqProvider(model_name=requested_model).get_llm()
     
     def strategic_planner(self, state: CodeAssistantState):
+        print('\n')
         print("Inside Strategic Planner")
         strategic_planner_chain = (
             self.code_assistant_chains.create_strategic_planner_chain(self.llm)
@@ -53,6 +54,7 @@ class CodeAssistantNodes:
     
     def task_executor(self, state: CodeAssistantState):
         # execute the step and update the state
+        print('\n')
         print("Inside Task executor")
         if not state.execution_plan:
             return Command(
