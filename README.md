@@ -4,6 +4,16 @@
 
 ---
 
+This project is being used as a sandbox to:
+
+- Learn which AI workflows are most useful internally
+- Understand LangGraph-based orchestration
+- Explore internal vs external AI tooling needs
+- How to create agent which plans, replans and executes.
+- This is still in progress
+
+Future scope: 
+
 ## 🚀 Overview
 
 **Altir AI Codegen** is a developer productivity tool built to accelerate day-to-day engineering at Altir.  
@@ -35,14 +45,6 @@ While tools like Cursor are extremely powerful and production-ready, `altir-ai-c
 | Integrated workflows       | ❌                     | ✅ Tied to our dev processes |
 
 This tool is focused on exploring **Altir-specific automation**, and may eventually be integrated with existing systems or work alongside tools like Cursor — not replace them.
-
----
-
-This project is being used as a sandbox to:
-
-- Learn which AI workflows are most useful internally
-- Understand LangGraph-based orchestration
-- Explore internal vs external AI tooling needs
 
 ---
 
