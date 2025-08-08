@@ -1,17 +1,13 @@
-# 🧠 Altir AI Codegen
-
-> An intelligent coding assistant tailored for Altir's codebase, tech stack, and internal workflows.
-
----
+# 🧠 Altir AI Codegen Directed flow
 
 This project is being used as a sandbox to:
 
 - Learn which AI workflows are most useful internally
 - Understand LangGraph-based orchestration
 - Explore internal vs external AI tooling needs
-- Learn how to build autonomous agent
+- Learn how to create directed flow.
 
----
+Head over to "agent" branch to learn how we can create agentic flow.
 
 ## ⚙️ Setup
 
