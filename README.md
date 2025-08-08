@@ -7,7 +7,7 @@ This project is being used as a sandbox to:
 - Explore internal vs external AI tooling needs
 - Learn how to create directed flow.
 
-Head over to "agent" branch to learn how we can create agentic flow.
+Head over to "agent" branch to checkout agentic flow.
 
 ## ⚙️ Setup
 
