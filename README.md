@@ -2,6 +2,16 @@
 
 ---
 
+Agent Workflow
+
+<img width="1594" height="692" alt="Screenshot 2025-07-31 at 11 02 00 PM" src="https://github.com/user-attachments/assets/d3e71dcf-c0f7-409a-8543-ae7f8d414b9f" />
+
+Tools available to agent:
+
+<img width="1935" height="683" alt="Screenshot 2025-07-24 at 8 22 48 PM" src="https://github.com/user-attachments/assets/3e6fc9d2-2eff-4afb-8063-58ebeee0fa83" />
+
+
+
 This project is being used as a sandbox to:
 
 - Learn which AI workflows are most useful internally
