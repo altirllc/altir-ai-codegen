@@ -1,5 +1,11 @@
 # 🧠 Altir AI Codegen Directed flow
 
+
+Tools used
+
+<img width="1935" height="683" alt="Screenshot 2025-07-24 at 8 22 48 PM" src="https://github.com/user-attachments/assets/f33e92aa-d60b-4f8d-ae19-0bee044df8eb" />
+
+
 This project is being used as a sandbox to:
 
 - Learn which AI workflows are most useful internally
