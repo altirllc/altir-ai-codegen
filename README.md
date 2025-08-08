@@ -1,6 +1,4 @@
-# 🧠 Altir AI Codegen
-
-> An intelligent coding assistant tailored for Altir's codebase, tech stack, and internal workflows.
+# 🧠 Altir AI Codegen Agent
 
 ---
 
@@ -9,10 +7,13 @@ This project is being used as a sandbox to:
 - Learn which AI workflows are most useful internally
 - Understand LangGraph-based orchestration
 - Explore internal vs external AI tooling needs
-- How to create agent which plans, replans and executes.
-- This is still in progress
+- Learn how to create agent which plans, replans and executes.
+- How can we manage and maintain short term and long term memory
+- How to utilize RAG
 
-Future scope: 
+**Future scope:**
+
+> An intelligent coding assistant tailored for Altir's codebase, tech stack, and internal workflows.
 
 ## 🚀 Overview
 
@@ -25,9 +26,7 @@ It understands how _we_ build software — from folder structure to API design �
 
 ### ⚠️ Important Notes
 
-- This tool is **in progress** and still in **exploration phase**.
 - It is **not a replacement** for existing tools like **Cursor** or **Windsurf** used at Altir.
-- Currently, it **only works with OpenAI models** (GPT-3.5 / GPT-4).
 - It's intended to explore the possibility of lightweight, internally-shaped automation assistants tailored to our workflows.
 
 ---
@@ -73,6 +72,7 @@ uv sync
 OPENAI_API_KEY=your_openai_api_key
 LANGCHAIN_API_KEY=your_langchain_api_key
 LANGCHAIN_PROJECT=altir-ai-codegen
+GROQ_API_KEY=your_groq_api_key
 ```
 
 ### 4. Run the tool
