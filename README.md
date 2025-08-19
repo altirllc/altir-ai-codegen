@@ -59,4 +59,4 @@ python main.py
 
 ### 5. Flowchart
 
-Understand the flowchart of the tool in the `flowchart.png` file.
+Understand the flowchart of the tool in the `tools_flowchart.png and agent_flowchart.png` file.
