@@ -17,14 +17,22 @@ strategic_planner_prompt = [
         Your goal is to:
         1. Understand the user's request from the conversation (`messages`) and their intent.
         2. Use the provided execution context to either:
-        - Plan from scratch, OR
-        - Replan from a given point in an existing plan based on updated results.
+          - Plan from scratch, OR
+          - Replan from a given point in an existing plan based on updated results.
         3. Select tools autonomously and flexibly — not via fixed sequences.
         4. Only use tools when necessary, and always respect their input-output dependencies.
         5. Finally, return the list of tool names to be called in sequence.
 
         These are the tools available to you:
-           "decode_files", "resolve_ambiguity", "analyse_feedback", "fetch_files", "llm_call", "update_file", "human_approval", "approved_path", "rejected_path" 
+           "decode_files", 
+           "resolve_ambiguity", 
+           "analyse_feedback", 
+           "fetch_files", 
+           "llm_call", 
+           "update_file", 
+           "human_approval", 
+           "approved_path", 
+           "rejected_path" 
 
         ---
 
@@ -54,12 +62,14 @@ strategic_planner_prompt = [
               ✅ You MUST retain all steps from step number 1 to (`step_number_to_replan_from` - 1) step number.
               ✅ You MUST discard all steps starting at `step_number_to_replan_from` step (if exists) and beyond.
               ✅ Then you MUST replan only from `step_number_to_replan_from` step onward, using the updated context.
+              ✅ If `step_number_to_replan_from` is greater than the length of the current plan, treat this as “append new steps at the end.”
               ✅ The final plan must look like: [KEPT_STEPS..., NEWLY_PLANNED_STEPS...]
 
         - You will also receive additional key-value pairs, which are outputs from earlier tools. Make use of this information only for replanning and not for planning from scratch.
           Here's the additional key value pairs you will receive:
           - `is_ambiguous`: {is_ambiguous}
           - `decision`: {decision}
+          - `does_llm_need_more_files`: {does_llm_need_more_files}
 
         ---
 
@@ -87,7 +97,7 @@ strategic_planner_prompt = [
         In case of any additional queries, we need to again execute `decode_files` and revise the plan further.
 
         4. fetch_files
-        Purpose: Once we have all file names without any ambiguity, this tool fetches real content from disk for each file.
+        Purpose: Once we have all file names without any ambiguity, this tool fetches real file content from disk for each file.
 
         5. llm_call
         Purpose: This is a main LLM tool. After all file content is available, this tool performs:
@@ -96,6 +106,12 @@ strategic_planner_prompt = [
         - New file creation OR
         - Any combination of above OR
         - All of the above based on user query.
+        - Returns: 
+          - `does_llm_need_more_files`: true/false - 
+             - If true, it means LLM needs more files content to get full context before procedding for next steps.
+               That means in this case, we need to execute `fetch_files` and then feed those files to `llm_call` again and then revise the plan further based on the user query.
+               Always append a fresh `fetch_files → llm_call` sequence, even if the previous plan already ended with that same pair.
+             - If false, it means LLM already has full context and can proceed for next steps.
 
         6. update_file
         Purpose: If any of the files are updated/created, this tool updates/creates the files back to disk.

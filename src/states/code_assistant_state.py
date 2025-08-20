@@ -17,6 +17,7 @@ class CodeAssistantState(BaseModel):
     ambiguous_files: List[Tuple[str, List[Path], Optional[str]]] = []
     decision: Optional[Literal["accept", "reject"]] = None
     additional_query: Optional[str] = None
+    does_llm_need_more_files: bool = False
 
     # Planning & Execution
     execution_plan: List[str] = []           # Current list of planned steps

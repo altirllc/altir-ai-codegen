@@ -30,7 +30,7 @@ decode_prompt = [
 
             1. **No file mentioned**: 
             The user did not mention any file name they want to analyse/edit/update/etc.  
-            ➤ Prompt the user again clearly telling them what was missing. Also mention like we only support file-level tasks and cannot perform project-level/global changes yet.  
+            ➤ Prompt the user again clearly telling them what was missing.
 
             2. **File mentioned but no actionable intent**:
             Example: `"Can u filename.py"` - this is **unclear and insufficient**.  

@@ -1,5 +1,6 @@
 from typing import List, Optional
-from src.models.file import File
+from dependency_map import dependency_map
+from src.models.file import Dependency, File
 from pathlib import Path
 import pathspec
 import os
@@ -7,10 +8,23 @@ import os
 project_root = Path(os.getcwd())
 
 def format_files_for_prompt(files: List[File]) -> str:
-    return "\n".join(
-        f"Filename: {file.file_name}\nDoes file exist: {file.exists}\nFile Path: {file.file_path}\nFile Content:\n```python\n{file.content}\n```"
-        for file in files
-    )
+    formatted_files = []
+    for file in files:
+        if len(file.dependencies) == 0:
+            deps_text = "No imported files in this file."
+        else:
+            deps_text = "Here are the list of imported files in this file:\n" + "\n".join(
+                f"Name: {dep.file_name}\nPath: {dep.file_path}" for dep in file.dependencies
+            )
+        
+        formatted_files.append(
+            f"Filename: {file.file_name}\n"
+            f"Does file exist: {file.exists}\n"
+            f"File Path: {file.file_path}\n"
+            f"File Content:\n```python\n{file.content}\n\n```"
+            f"This file depends on: {deps_text}\n\n"
+        )
+    return "\n\n".join(formatted_files)
 
 def get_gitignore_spec():
     # Generate gitignore path
@@ -80,3 +94,7 @@ def contruct_file_path_confirmation_prompt(
     )
 
     return file_path_confirmation_prompt
+
+def get_dependencies(file_path: str) -> List[Dependency]:
+    deps_data = dependency_map.get(file_path, [])
+    return [Dependency(file_name=d["name"], file_path=d["path"]) for d in deps_data]

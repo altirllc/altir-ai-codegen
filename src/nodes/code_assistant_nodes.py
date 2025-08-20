@@ -1,6 +1,8 @@
+from typing import List
 from src.llm_providers.groq import GroqProvider
+from src.models.file import File
 from src.models.strategic_planner_output import StrategicPlannerOutput
-from src.utils.file import format_files_for_prompt
+from src.utils.file import format_files_for_prompt, get_dependencies
 from src.states.code_assistant_state import CodeAssistantState
 from src.chains.code_assistant_chains import CodeAssistantChains
 from langgraph.types import StateSnapshot, interrupt, Command
@@ -15,6 +17,7 @@ from src.utils.graph import get_files_to_reverse
 from langgraph.runtime import Runtime
 from src.llm_providers.openai import OpenAIProvider
 from src.context_schema.code_assistant_context_schema import CodeAssistantContextSchema
+   
 class CodeAssistantNodes:
     def __init__(self):
         self.code_assistant_chains = CodeAssistantChains()
@@ -34,8 +37,8 @@ class CodeAssistantNodes:
         strategic_planner_chain = (
             self.code_assistant_chains.create_strategic_planner_chain(self.llm)
         )
-        is_replanning_needed = bool(state.ambiguous_files) or bool(state.decision) or bool(state.additional_query)
-        is_ambiguous = True if state.ambiguous_files else False
+        is_replanning_needed = bool(state.ambiguous_files) or bool(state.decision) or bool(state.additional_query) or bool(state.does_llm_need_more_files)
+        is_ambiguous = bool(state.ambiguous_files)
         decision = "Changed Accepted" if state.decision == "accept" else "Changed Rejected" if state.decision == "reject" else "No Decision yet"
         strategic_planner_output: StrategicPlannerOutput = strategic_planner_chain.invoke(
             {
@@ -45,6 +48,7 @@ class CodeAssistantNodes:
                 "execution_plan": state.execution_plan or "No Execution Plan created yet.",
                 "is_ambiguous": is_ambiguous,
                 "decision": decision,
+                "does_llm_need_more_files": state.does_llm_need_more_files
             }
         )
         print("Strategic Planner Plan: ", strategic_planner_output.plan)
@@ -88,6 +92,7 @@ class CodeAssistantNodes:
         messages = []
         decision = None
         additional_query = None
+        does_llm_need_more_files = False
         if task == "decode_files":
             result = self.decode_files(state)
             is_replanning_needed = result.get("is_replanning_needed", False)
@@ -131,6 +136,7 @@ class CodeAssistantNodes:
             should_terminate = result.get("should_terminate", False)
             summary = result.get("summary", '')
             files = result.get("files", state.files)
+            does_llm_need_more_files = result.get("does_llm_need_more_files", False)
             new_step_index = new_step_index + 1
             are_steps_completed = new_step_index == len(state.execution_plan)
         if task == "update_file":
@@ -192,6 +198,7 @@ class CodeAssistantNodes:
                     "step_executed": step_executed,
                     "files": files,
                     "additional_query": additional_query,
+                    "does_llm_need_more_files": does_llm_need_more_files
                 },
             )
         else:
@@ -205,6 +212,7 @@ class CodeAssistantNodes:
                         "execution_plan": [],
                         "completed_tasks": [],
                         "step_executed": step_executed,
+                        "does_llm_need_more_files": does_llm_need_more_files
                     },
                 )
             else:
@@ -218,6 +226,7 @@ class CodeAssistantNodes:
                             "execution_plan": [],
                             "completed_tasks": [],
                             "step_executed": step_executed,
+                            "does_llm_need_more_files": does_llm_need_more_files
                         },
                     )
                 else:
@@ -230,6 +239,7 @@ class CodeAssistantNodes:
                             "file_path_confirmation_prompt": file_path_confirmation_prompt,
                             "human_feedback": human_feedback,
                             "step_executed": step_executed,
+                            "does_llm_need_more_files": does_llm_need_more_files
                         },
                     )
 
@@ -354,11 +364,21 @@ class CodeAssistantNodes:
             if not file.file_name:
                 continue
             if file.file_path:
-                print(f"✅ File path confirmed by user: {file.file_path}")
-                # file path already confirmed by user
+                print("File path already exists - file name: ", file.file_name, "file path: ", file.file_path)
+                # we have file path already
                 resolved_path = Path(file.file_path)
-                relative_path = resolved_path.relative_to(project_root)
-                file.file_path = str(relative_path)
+                if resolved_path.is_absolute():
+                    # Only make it relative if it’s under project_root
+                    try:
+                        relative_path = resolved_path.relative_to(project_root)
+                        file.file_path = str(relative_path)
+                    except ValueError:
+                        # Path not under project_root → keep original
+                        file.file_path = str(resolved_path)
+                else:
+                    # Already relative
+                    file.file_path = str(resolved_path)
+                file.dependencies = get_dependencies(file.file_path)
                 file.content = resolved_path.read_text(encoding="utf-8")
                 file.exists = True
             else:
@@ -373,6 +393,7 @@ class CodeAssistantNodes:
                     resolved_path = valid_paths[0]
                     relative_path = resolved_path.relative_to(project_root)
                     file.file_path = str(relative_path)
+                    file.dependencies = get_dependencies(file.file_path)
                     file.content = resolved_path.read_text(encoding="utf-8")
                     file.exists = True
                 else:
@@ -416,11 +437,21 @@ class CodeAssistantNodes:
                 "formatted_files": formatted_files,
             }
         )
+
+        if llm_output.required_files:
+            return {
+                "is_replanning_needed": True,
+                "should_terminate": False,
+                "files": llm_output.files + llm_output.required_files,
+                "summary": llm_output.summary,
+                "does_llm_need_more_files": True,
+            }
         return {
             "is_replanning_needed": False,
             "should_terminate": False,
             "files": llm_output.files,
             "summary": llm_output.summary,
+            "does_llm_need_more_files": False,
         }
 
     def update_file(self, state: CodeAssistantState):
