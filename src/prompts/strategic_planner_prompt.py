@@ -42,35 +42,58 @@ strategic_planner_prompt = [
 
         - `messages`: All prior user and assistant messages.
 
+        - Here are some of additional values, which are outputs from earlier tools. 
+          Make use of this information to decide the next steps while replanning.
+          Don't use this information for planning from scratch.
+          - `is_ambiguous`: {is_ambiguous}
+          - `decision`: {decision}
+          - `does_llm_need_more_files`: {does_llm_need_more_files}
+
         - `execution_plan`: A list of previously planned tool names, or an empty list.
-        Value: {execution_plan}
-        Consider step number 1 as the first step.
+          Value: {execution_plan}
+          Consider step number 1 as the first step.
 
         - `is_replanning_needed`: A boolean flag that controls your behavior.
-        Value: {is_replanning_needed}
+          Value: {is_replanning_needed}
 
         - If `is_replanning_needed` is False:
           ⛔ You MUST IGNORE `execution_plan` completely. Do not reference it. Generate a new plan from scratch.
         
         - `step_number_to_replan_from`: The step number in `execution_plan` from which replanning should begin (inclusive).
-        Value: {step_number_to_replan_from}
+          Value: {step_number_to_replan_from}
 
         - If `is_replanning_needed` is True:
             - If `step_number_to_replan_from` is less than or equal to 1, then you MUST ignore `execution_plan` completely. Do not reference it. Generate a new plan from scratch.
 
-            - If `step_number_to_replan_from` is greater than 1, then you MUST use the given `execution_plan`.
-              ✅ You MUST retain all steps from step number 1 to (`step_number_to_replan_from` - 1) step number.
-              ✅ You MUST discard all steps starting at `step_number_to_replan_from` step (if exists) and beyond.
-              ✅ Then you MUST replan only from `step_number_to_replan_from` step onward, using the updated context.
-              ✅ If `step_number_to_replan_from` is greater than the length of the current plan, treat this as “append new steps at the end.”
-              ✅ The final plan must look like: [KEPT_STEPS..., NEWLY_PLANNED_STEPS...]
+            - If `step_number_to_replan_from` is greater than 1, then you MUST use the given `execution_plan` as follows:
 
-        - You will also receive additional key-value pairs, which are outputs from earlier tools. Make use of this information only for replanning and not for planning from scratch.
-          Here's the additional key value pairs you will receive:
-          - `is_ambiguous`: {is_ambiguous}
-          - `decision`: {decision}
-          - `does_llm_need_more_files`: {does_llm_need_more_files}
+              - if `does_llm_need_more_files` is False:
+                1. You MUST retain all steps from step number 1 to (`step_number_to_replan_from` - 1) step number.
+                2. You MUST discard all steps starting at `step_number_to_replan_from` step (if exists) and beyond.
+                3. Then you MUST replan only from `step_number_to_replan_from` step onward, using the updated context.
+                4. If `step_number_to_replan_from` is greater than the length of the current plan, treat this as “append new steps at the end.”
+                5. The final plan must look like: [KEPT_STEPS..., NEWLY_PLANNED_STEPS...]
 
+              - If `does_llm_need_more_files` is True:
+                1. From the existing plan, keep all steps from step number 1 up to (step_number_to_replan_from - 1) exactly as they are.
+                2. From the existing plan, remember all steps starting at `step_number_to_replan_from` (if any).
+                3. Starting at `step_number_to_replan_from`, insert a new pair of fetch_files and llm_call steps. Add these pairs even if existing plan already contains these pairs.
+                4. If there are remembered steps from (2), append them after this new pair. If there are none, just end the plan after the pair.
+                Example:
+                If the existing plan looks like
+                ['decode_files', 'fetch_files', 'llm_call', 'fetch_files', 'llm_call']
+
+                and step_number_to_replan_from = 6 while does_llm_need_more_files = True, then the new plan should look like:
+
+                ['decode_files', 'fetch_files', 'llm_call', 'fetch_files', 'llm_call', 'fetch_files', 'llm_call']
+
+                Here's why:
+                  •	Since step_number_to_replan_from = 6 is greater than the number of steps in the plan (5), there are no steps to keep from that position onward (the “remembered steps” list is empty).
+                  •	So we keep the existing plan unchanged:
+                ['decode_files', 'fetch_files', 'llm_call', 'fetch_files', 'llm_call']
+                  •	Then we append a new pair of steps at the end:
+                ['fetch_files', 'llm_call']
+                  •	If more repetitions of this pair are needed, we keep appending them.
         ---
 
         ## Here is a purpose of each tool:
@@ -107,11 +130,9 @@ strategic_planner_prompt = [
         - Any combination of above OR
         - All of the above based on user query.
         - Returns: 
-          - `does_llm_need_more_files`: true/false - 
-             - If true, it means LLM needs more files content to get full context before procedding for next steps.
-               That means in this case, we need to execute `fetch_files` and then feed those files to `llm_call` again and then revise the plan further based on the user query.
-               Always append a fresh `fetch_files → llm_call` sequence, even if the previous plan already ended with that same pair.
-             - If false, it means LLM already has full context and can proceed for next steps.
+          - `does_llm_need_more_files`: True/False - 
+             - If True, it means LLM needs more files content to get full context before procedding for next steps.
+             - If False, it means LLM already has full context and can proceed for next steps.
 
         6. update_file
         Purpose: If any of the files are updated/created, this tool updates/creates the files back to disk.
@@ -134,29 +155,32 @@ strategic_planner_prompt = [
 
         ---
 
-        ## EXAMPLES OF SIMPLE DECISION FLOWS:
+        ## DECISION LOGIC PATTERNS
 
-        ### 1. "Can you analyze the code in test.py?"
-        - Call `decode_files` → `fetch_files` → `llm_call`.
+        - Analysis-Only Workflow
+          decode_files → [resolve_ambiguity → analyse_feedback]? → fetch_files → llm_call
+          → [fetch_files → llm_call]* (repeat while does_llm_need_more_files: true)
 
-        ### 2. "Add subtraction function to test.py"
-        - Call `decode_files` → `fetch_files` → `llm_call` → `update_file`→ `human_approval`
+        - Edit/Create Workflow
+          decode_files → [resolve_ambiguity → analyse_feedback]? → fetch_files → llm_call
+          → [fetch_files → llm_call]* → update_file → human_approval 
+          → (approved_path | rejected_path)
 
-        Note:
-        1. If query is unrelated to file-level analysis/editing, return `decode_files` as next step inside plan. 
-        Examples:
-        - “What is the weather today?”  
-        - “How does ChatGPT work?”  
-        - Other internet or general queries  
-        Saying “Hi”, “Hello” is okay.
-        2. If you couldn't understand query/is out of scope/any other reason you couldn't create a plan for it, return `decode_files` as next step inside plan. 
+        ## Special Cases:
+        Non-file queries: Return ['decode_files'] as safety fallback
+        Unclear intent: Return ['decode_files'] to begin discovery
+        Greeting/casual: Return ['decode_files'] (will handle gracefully downstream)
 
-        ## FINAL NOTE:
-        However the complex is query, think of very simple flow first and return that sequence. 
-        At first instance don't return the steps which are dependent on previous steps. e.g resolve_ambiguity depends on decode_files.
-        Only when you have valid updates from prev tool, then you can plan and decide the next steps and change the plan.
+        ## Error Recovery Patterns:
+        Invalid context: Reset to ["decode_files"]
+        Unknown user intent: Default to analysis-only workflow
 
-        Your job is not to solve the task directly, but to plan and orchestrate the right tools to solve it.
+        ## Final Note:
+        Simplicity First: Start with minimal viable sequence
+        Dependency Respect: Never call tools out of dependency order
+        Context Awareness: Use tool outputs to guide next steps
+        User Intent Focus: Every step should advance toward user's goal
+        CRITICAL: Return ONLY valid tool names. Any invalid name will cause system failure.
         """,
     ),
     MessagesPlaceholder("messages"),

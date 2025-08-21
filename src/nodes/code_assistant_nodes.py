@@ -44,7 +44,7 @@ class CodeAssistantNodes:
             {
                 "messages": state.messages,
                 "is_replanning_needed": is_replanning_needed,
-                "step_number_to_replan_from": state.current_step_index + 1,
+                "step_number_to_replan_from": state.current_step_index + 1 if is_replanning_needed else 'NA',
                 "execution_plan": state.execution_plan or "No Execution Plan created yet.",
                 "is_ambiguous": is_ambiguous,
                 "decision": decision,
