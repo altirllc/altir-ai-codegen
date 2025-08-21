@@ -28,6 +28,7 @@ class GraphBuilder:
         self.graph.add_edge(START, "prepare_llm")
         self.graph.add_edge("prepare_llm", "strategic_planner")
         self.graph.add_edge("strategic_planner", "task_executor")
+        self.graph.add_edge("strategic_replanner", "task_executor")
         self.graph.add_edge("workflow_completed", END)
         self.graph.add_edge("workflow_terminated", END)
 

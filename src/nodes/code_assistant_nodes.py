@@ -2,14 +2,14 @@ from typing import List
 from src.llm_providers.groq import GroqProvider
 from src.models.file import File
 from src.models.strategic_planner_output import StrategicPlannerOutput
-from src.utils.file import format_files_for_prompt, get_dependencies
+from src.utils.file import format_files_for_prompt, get_dependencies, get_project_root
 from src.states.code_assistant_state import CodeAssistantState
 from src.chains.code_assistant_chains import CodeAssistantChains
 from langgraph.types import StateSnapshot, interrupt, Command
 from src.utils.file import check_file_ambiguity, contruct_file_path_confirmation_prompt
 from langchain_core.messages import AIMessage, HumanMessage
 from pathlib import Path
-from src.utils.file import project_root, get_valid_file_paths
+from src.utils.file import get_valid_file_paths
 from src.models.llm_analyse_edit_output import LLMAnalyseEditOutput
 from src.models.decode_file_name import DecodeFileNameOutput
 from src.models.analyse_human_feedback import AnalyseHumanFeedbackOutput
@@ -22,11 +22,13 @@ class CodeAssistantNodes:
     def __init__(self):
         self.code_assistant_chains = CodeAssistantChains()
         self.llm = None
+        self.project_root = None
 
     def prepare_llm( self, state: CodeAssistantState, runtime: Runtime[CodeAssistantContextSchema]):
         logger.log_step_start("prepare_llm", "Setting up AI model configuration")
         requested_llm = getattr(runtime, "context", {}).get("model_provider", "")
         requested_model = getattr(runtime, "context", {}).get("model_name", "")
+        self.project_root = get_project_root(getattr(runtime, "context", {}).get("target_directory", ""))
     
         logger.log_step_info(f"Provider: {requested_llm.upper()}")
         logger.log_step_info(f"Model: {requested_model}")
@@ -88,67 +90,47 @@ class CodeAssistantNodes:
             raise
 
     def strategic_replanner(self, state: CodeAssistantState):
-        strategic_planner_chain = (
-            self.code_assistant_chains.create_strategic_planner_chain(self.llm)
-        )
         is_ambiguous = bool(state.ambiguous_files)
         is_decision_taken = bool(state.decision)
         is_additional_query_given = bool(state.additional_query)
         does_llm_need_more_files = bool(state.required_files)
-        is_replanning_needed = (
-            is_ambiguous
-            or is_decision_taken
-            or is_additional_query_given
-            or does_llm_need_more_files
-        )
-
-        if is_replanning_needed:
-            updated_plan = []
-            if is_ambiguous:
-                updated_plan = insert_steps(
-                    state.execution_plan,
-                    state.current_step_index,
-                    ["resolve_ambiguity", "analyse_feedback"],
-                )
-            if is_decision_taken:
-                updated_plan = insert_steps(
-                    state.execution_plan,
-                    state.current_step_index,
-                    (
+        updated_plan = []
+        if is_ambiguous:
+            updated_plan = insert_steps(
+                state.execution_plan,
+                state.current_step_index,
+                ["resolve_ambiguity", "analyse_feedback"],
+            )
+        if is_decision_taken:
+            updated_plan = insert_steps(
+                state.execution_plan,
+                state.current_step_index,
+                (
                         ["approved_path"]
                         if state.decision == "accept"
                         else ["rejected_path"]
                     ),
-                )
-            if is_additional_query_given:
-                updated_plan = insert_steps(
-                    state.execution_plan, state.current_step_index, ["decode_files"]
-                )
-            if does_llm_need_more_files:
-                if state.has_llm_updated_files:
-                    updated_plan = insert_steps(
-                        state.execution_plan,
-                        state.current_step_index,
-                        ["update_file", "fetch_files", "llm_call"],
-                    )
-                else:
-                    updated_plan = insert_steps(
-                        state.execution_plan,
-                        state.current_step_index,
-                        ["fetch_files", "llm_call"],
-                    )
-            return {
-                "execution_plan": updated_plan,
-            }
-        else:
-            output: StrategicPlannerOutput = strategic_planner_chain.invoke(
-                {
-                    "messages": state.messages,
-                }
             )
-            return {
-                "execution_plan": output.plan,
-            }
+        if is_additional_query_given:
+            updated_plan = insert_steps(
+                state.execution_plan, state.current_step_index, ["decode_files"]
+            )
+        if does_llm_need_more_files:
+            if state.has_llm_updated_files:
+                updated_plan = insert_steps(
+                    state.execution_plan,
+                    state.current_step_index,
+                    ["update_file", "fetch_files", "llm_call"],
+                )
+            else:
+                updated_plan = insert_steps(
+                    state.execution_plan,
+                    state.current_step_index,
+                    ["fetch_files", "llm_call"],
+                )
+        return {
+            "execution_plan": updated_plan,
+        }
 
     def task_executor(self, state: CodeAssistantState):
         # execute the step and update the state
@@ -188,7 +170,8 @@ class CodeAssistantNodes:
         additional_query = None
         has_llm_updated_files = False
         required_files = None
-        logger.log_step_info(f"Starting work...")
+        task_description = logger.get_task_description(task)
+        logger.log_step_info(task_description)
         if task == "decode_files":
             result = self.decode_files(state)
             is_replanning_needed = result.get("is_replanning_needed", False)
@@ -326,19 +309,14 @@ class CodeAssistantNodes:
 
     from src.utils.logger import logger
 
-    def decode_files(self, state: CodeAssistantState):
-        logger.log_step_info("Looking at your message to find file names...")
-        
+    def decode_files(self, state: CodeAssistantState):        
         # Check if we already have files from previous steps
         if state.files:
-            logger.log_step_info("Using files from previous steps")
             formatted_files = format_files_for_prompt(state.files)
         else:
-            logger.log_step_info("Starting fresh file search")
             formatted_files = []
         
         # Create and run the file decoder
-        logger.log_step_info("Analyzing your request for file references...")
         decode_file_name_chain = (
             self.code_assistant_chains.create_decode_file_name_chain(self.llm)
         )
@@ -377,7 +355,7 @@ class CodeAssistantNodes:
             if not file.file_name:
                 continue
                 
-            result = check_file_ambiguity(file)
+            result = check_file_ambiguity(file, self.project_root)
             if result.get("is_ambiguous", True) or result.get("is_ambigious_and_invalid_file_path", True):
                 user_provided_path = (
                     file.file_path
@@ -421,6 +399,7 @@ class CodeAssistantNodes:
                 "from": "human_feedback",
             }
         )
+        logger.log_step_info("Thanks for clarifying! Let me process your feedback...")
         return {
             "should_terminate": False,
             "is_replanning_needed": False,
@@ -443,13 +422,16 @@ class CodeAssistantNodes:
                 }
             )
         )
+        
         if analyse_human_feedback_output.should_end:
+            logger.log_step_info(analyse_human_feedback_output.summary)
             return {
                 "should_terminate": True,
                 "is_replanning_needed": False,
                 "summary": analyse_human_feedback_output.summary,
             }
         if analyse_human_feedback_output.additional_query:
+            logger.log_step_info("I noticed you have additional questions. Let me handle those too...")
             return {
                 "should_terminate": False,
                 "is_replanning_needed": True,
@@ -465,6 +447,8 @@ class CodeAssistantNodes:
                 "summary": "Thanks for confirming the file paths. Now let me analyse your additional queries.",
                 "additional_query": analyse_human_feedback_output.additional_query,
             }
+        
+        logger.log_step_info("Perfect! I now understand which files you're referring to")
         return {
             "should_terminate": False,
             "is_replanning_needed": False,
@@ -480,18 +464,13 @@ class CodeAssistantNodes:
             if not file.file_name:
                 continue
             if file.file_path:
-                print(
-                    "File path already exists - file name: ",
-                    file.file_name,
-                    "file path: ",
-                    file.file_path,
-                )
+                logger.log_step_info(f"Found {file.file_name} at the specified location")
                 # we have file path already
                 resolved_path = Path(file.file_path)
                 if resolved_path.is_absolute():
-                    # Only make it relative if it’s under project_root
+                    # Only make it relative if it's under project_root
                     try:
-                        relative_path = resolved_path.relative_to(project_root)
+                        relative_path = resolved_path.relative_to(self.project_root)
                         file.file_path = str(relative_path)
                     except ValueError:
                         # Path not under project_root → keep original
@@ -499,52 +478,38 @@ class CodeAssistantNodes:
                 else:
                     # Already relative
                     file.file_path = str(resolved_path)
-                file.dependencies = get_dependencies(file.file_path)
+                file.dependencies = get_dependencies(file.file_path, self.project_root)
                 file.content = resolved_path.read_text(encoding="utf-8")
                 file.exists = True
+                logger.log_step_info(f"Successfully read {file.file_name}...")
             else:
+                logger.log_step_info(f"Searching for {file.file_name} in your project...")
                 # either file doesn't exist or each file has only one path
                 # Get all matching paths in the project
-                paths_found = list(project_root.rglob(file.file_name))
+                paths_found = list(self.project_root.rglob(file.file_name))
 
                 # Now filter out the paths that are in gitignore
-                valid_paths = get_valid_file_paths(paths_found)
+                valid_paths = get_valid_file_paths(paths_found, self.project_root)
                 if valid_paths:
                     # if valid paths found, use first match as there is only one valid path
                     resolved_path = valid_paths[0]
-                    relative_path = resolved_path.relative_to(project_root)
+                    relative_path = resolved_path.relative_to(self.project_root)
                     file.file_path = str(relative_path)
-                    file.dependencies = get_dependencies(file.file_path)
+                    file.dependencies = get_dependencies(file.file_path, self.project_root)
                     file.content = resolved_path.read_text(encoding="utf-8")
                     file.exists = True
+                    logger.log_step_info(f"Found {file.file_name} and successfully read it...")
                 else:
+                    logger.log_step_info(f"Could not locate {file.file_name} in your project")
                     # if no valid paths found, file doesn't exist
                     file.file_path = ""
                     file.content = ""
                     file.exists = False
 
-        found_files = [file.file_name for file in state.files if file.exists]
-        missing_files = [file.file_name for file in state.files if not file.exists]
-        summary_parts = []
-
-        if found_files:
-            val = len(found_files) > 1 and "s" or ""
-            summary_parts.append(f"I found the file{val} - {', '.join(found_files)}.")
-            summary_parts.append(
-                f"Please wait a moment.. Let me analyse the file{val}."
-            )
-
-        if missing_files:
-            summary_parts.append(
-                f"I couldn't find these file{len(missing_files) > 1 and 's' or ''} - {', '.join(missing_files)}."
-            )
-
-        summary = "\n".join(summary_parts)
         return {
             "is_replanning_needed": False,
             "should_terminate": False,
             "files": updated_files,
-            "summary": summary,
         }
 
     def llm_call(self, state: CodeAssistantState):
@@ -559,7 +524,20 @@ class CodeAssistantNodes:
             }
         )
 
+        # Show the agent's summary to the user
+        if llm_output.summary:
+            logger.log_step_info(f"Analysis complete: {llm_output.summary}")
+
+        # Inform about file updates
+        if llm_output.is_update:
+            logger.log_step_info("I've prepared changes for your files")
+        else:
+            logger.log_step_info("No file changes are needed for this request")
+
         if llm_output.required_files:
+            required_file_names = [file.file_name for file in llm_output.required_files if file.file_name]
+            if required_file_names:
+                logger.log_step_info(f"I need more context from these files: {', '.join(required_file_names)}")
             return {
                 "is_replanning_needed": True,
                 "should_terminate": False,
@@ -576,16 +554,26 @@ class CodeAssistantNodes:
             "has_llm_updated_files": llm_output.is_update,
         }
 
-    def update_file(self, state: CodeAssistantState):
+    def update_file(self, state: CodeAssistantState):        
         for file in state.files:
-            # Use file_path if available, otherwise fallback to root/file_name
-            path = (
-                Path(file.file_path) if file.file_path else Path(".") / file.file_name
-            )
+            # Use file_path if available, otherwise fallback to project_root/file_name
+            if file.file_path:
+                # If file_path is absolute, use it; otherwise make it relative to project_root
+                file_path = Path(file.file_path)
+                if file_path.is_absolute():
+                    path = file_path
+                else:
+                    path = self.project_root / file_path
+            else:
+                path = self.project_root / file.file_name
+            
             # Ensure parent directories exist
             path.parent.mkdir(parents=True, exist_ok=True)
             # Write content
             path.write_text(file.content, encoding="utf-8")
+            logger.log_step_info(f"Successfully updated {file.file_name}")
+        
+        logger.log_step_info("All file changes have been applied")
         return {
             "files": state.files,
         }
@@ -630,6 +618,7 @@ class CodeAssistantNodes:
         }
 
     def approved_path(self, state: CodeAssistantState):
+        logger.log_step_info("Thanks for your approval. Your files have been updated.")
         return {
             "is_replanning_needed": False,
             "should_terminate": False,
@@ -637,23 +626,34 @@ class CodeAssistantNodes:
         }
 
     def rejected_path(self, state: CodeAssistantState):
+        logger.log_step_info("Reversing changes to restore your files to their original state...")
+        
         # reverse the files to its original state
         if state.files:
             for file in state.files:
-                # Use file_path if available, otherwise fallback to root/file_name
-                path = (
-                    Path(file.file_path)
-                    if file.file_path
-                    else Path(".") / file.file_name
-                )
+                # Use file_path if available, otherwise fallback to project_root/file_name
+                if file.file_path:
+                    # If file_path is absolute, use it; otherwise make it relative to project_root
+                    file_path = Path(file.file_path)
+                    if file_path.is_absolute():
+                        path = file_path
+                    else:
+                        path = self.project_root / file_path
+                else:
+                    path = self.project_root / file.file_name
+                
                 if file.exists:
                     # If the file exists, update it
                     path.parent.mkdir(parents=True, exist_ok=True)
                     path.write_text(file.content, encoding="utf-8")
+                    logger.log_step_info(f"Restored {file.file_name} to its original content")
                 else:
                     # If the file was added newly, delete it now.
                     if path.exists() and path.is_file():
                         path.unlink()
+                        logger.log_step_info(f"Removed newly created file {file.file_name}")
+        
+        logger.log_step_info("All changes have been successfully reversed")
         return {
             "is_replanning_needed": False,
             "should_terminate": False,

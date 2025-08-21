@@ -5,3 +5,4 @@ from dataclasses import dataclass
 class CodeAssistantContextSchema:
     model_provider: str = "openai"
     model_name: str = "gpt-4o"
+    target_directory: str = ""

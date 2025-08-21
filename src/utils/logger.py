@@ -17,17 +17,21 @@ class SimpleLogger:
         self.step_times = {}
         # Natural language descriptions for plan steps
         self.plan_descriptions = {
-            "decode_files": "🔍 Decode and identify files mentioned by user",
-            "fetch_files": "📥 Fetch identified files from disk",
-            "llm_call": "🤖 Analyze files using AI model",
-            "update_file": "✏️  Update/modify files based on analysis",
-            "human_approval": "👤 Request user approval for changes"
+            "decode_files": "🔍 Looking at your message to understand what files you need",
+            "fetch_files": "📥 Finding and reading the files from your project",
+            "resolve_ambiguity": "🔍 Clarifying which files you meant",
+            "analyse_feedback": "💬 Understanding your feedback",
+            "llm_call": "🤖 Analyzing your files and planning the changes",
+            "update_file": "✏️  Applying the requested changes to your files",
+            "human_approval": "👤 Asking for your approval before proceeding",
+            "approved_path": "✅ Processing your approval",
+            "rejected_path": "❌ Processing your rejection"
         }
         
         # Plan workflow descriptions
         self.workflow_descriptions = {
             ('decode_files', 'fetch_files', 'llm_call', 'update_file', 'human_approval'): 
-                "📝 File modification workflow (decode → fetch → analyze → update → approve)",
+                "📝 File modification workflow (decode → fetch → analyze → update)",
             ('decode_files', 'fetch_files', 'llm_call'): 
                 "📖 File analysis workflow (decode → fetch → analyze)",
             ('decode_files',): 
@@ -47,6 +51,10 @@ class SimpleLogger:
     def log_step_info(self, message: str):
         """Log info within a step"""
         print(f"│  ℹ️  {message}")
+    
+    def get_task_description(self, task_name: str) -> str:
+        """Get human-friendly description for a task"""
+        return self.plan_descriptions.get(task_name, f"Working on {task_name.replace('_', ' ')}")
     
     def log_step_success(self, message: str):
         """Log success within a step"""

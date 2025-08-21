@@ -7,6 +7,7 @@ from src.utils.graph import handle_interrupt
 import os
 from dotenv import load_dotenv
 import questionary
+from pathlib import Path
 import textwrap
 
 # Load environment variables
@@ -18,7 +19,7 @@ graph_builder = GraphBuilder()
 graph = graph_builder.compile_graph()
 
 
-def run_request(user_input: str, model_provider: str, model_name: str):
+def run_request(user_input: str, model_provider: str, model_name: str, target_directory: Path):
     messages = [HumanMessage(content=user_input)]
     request = {"messages": messages}
     config = {"configurable": {"thread_id": "1", "user_id": "1"}}
@@ -39,6 +40,7 @@ def run_request(user_input: str, model_provider: str, model_name: str):
         context={
             "model_provider": model_provider,
             "model_name": model_name,
+            "target_directory": str(target_directory),
         },
     ):
         log_data(chunk, sections)
@@ -51,6 +53,7 @@ def run_request(user_input: str, model_provider: str, model_name: str):
                 context={
                     "model_provider": model_provider,
                     "model_name": model_name,
+                    "target_directory": str(target_directory),
                 },
             ):
                 log_data(chunk, sections)
@@ -59,6 +62,11 @@ def run_request(user_input: str, model_provider: str, model_name: str):
                     graph.invoke(
                         Command(resume=resume),
                         config=config,
+                        context={
+                            "model_provider": model_provider,
+                            "model_name": model_name,
+                            "target_directory": str(target_directory),
+                        },
                     )
 
 
@@ -91,6 +99,22 @@ def get_model_selection():
 
     return model_provider, model_name
 
+def get_target_directory():
+    """Ask user for target project directory"""
+    current_dir = Path.cwd()
+    
+    use_current = questionary.confirm(
+        f"Work in current directory ({current_dir})?"
+    ).ask()
+    
+    if use_current:
+        return current_dir
+    
+    target_path = questionary.path(
+        "Enter path to target project directory:"
+    ).ask()
+    
+    return Path(target_path) if target_path else current_dir
 
 def main():
     """Main interactive loop"""
@@ -108,6 +132,12 @@ def main():
     print("║" + " " * 68 + "║")
     print("╚" + "═" * 68 + "╝")
     print()
+
+    # Get target directory
+    target_directory = get_target_directory()
+    if not target_directory:
+        print("No target directory selected. Exiting...")
+        return
 
     # Initial model selection
     model_provider, model_name = get_model_selection()
@@ -190,7 +220,7 @@ def main():
             print("╚" + "═" * 68 + "╝")
 
             # Run the request
-            run_request(user_input, model_provider, model_name)
+            run_request(user_input, model_provider, model_name, target_directory)
 
             print("\n╔" + "═" * 68 + "╗")
             print("║" + " ✅ REQUEST COMPLETED SUCCESSFULLY! ".center(68) + "║")

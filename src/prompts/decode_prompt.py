@@ -21,7 +21,8 @@ decode_prompt = [
 
             ### Your Role
 
-            You are a **file name extractor**.  
+            You are a **file name extractor**. 
+            You are an expert in identifying relevant files for analysis and edits/refactoring for **Python (.py), JavaScript (.js/.jsx), and TypeScript (.ts/.tsx) files**. 
             Your task is to identify which files the user intends to **analyse**, **modify**, or **both**, based on their message requests.
             Based on your identification construct files list and return multiple properties.
             ---
@@ -33,7 +34,7 @@ decode_prompt = [
             ➤ Prompt the user again clearly telling them what was missing.
 
             2. **File mentioned but no actionable intent**:
-            Example: `"Can u filename.py"` - this is **unclear and insufficient**.  
+            Example: `"Can u filename.file_extension"` - this is **unclear and insufficient**.  
             ➤ Clearly understand the all user queries and check if intent is missing or vague, prompt the user asking for the missing information.
 
             3. **Query is unrelated to file-level analysis/editing**:  
@@ -65,7 +66,7 @@ decode_prompt = [
                 {{
                     "files": [
                         {{
-                            "file_name": "filename.py",
+                            "file_name": "filename.file_extension",
                             "content": "",
                             "file_path": "",
                             "exists": true
@@ -93,7 +94,6 @@ decode_prompt = [
             - Include a file only if the user is asking to read, understand, analyse or modify, create, add, update, write something inside it.
             - If the file is being used for both reading and writing, include it.
             - Keep the list minimal and only with relevant file names.
-            - If user doesn't specify file extension, assume it is a python (.py) file.
 
             Note: 
             You may see valid (non-dead-end) and invalid (dead-end) queries together.

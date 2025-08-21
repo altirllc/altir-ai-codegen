@@ -9,8 +9,8 @@ analyse_feedback_prompt = [
             {formatted_files}
 
             User has asked to:
-            1. Analyse files
-            2. Edit/refactor/update files
+            1. Analyse files only
+            2. Edit/refactor/update files only
             3. Analyse and edit files
 
             Based on user query, we already identified the files to be analysed and edited.
@@ -33,7 +33,7 @@ analyse_feedback_prompt = [
             {{
                 "files": [
                     {{
-                        "file_name": "filename.py",
+                        "file_name": "filename.file_extension",
                         "content": "always return empty string for now",
                         "file_path": "file path here",
                         "exists": always return true

@@ -1,11 +1,17 @@
 from typing import List, Optional
-from dependency_map import dependency_map
+from dependency_map import dependency_map, generate_dependency_map
 from src.models.file import Dependency, File
 from pathlib import Path
 import pathspec
 import os
 
 project_root = Path(os.getcwd())
+
+def get_project_root(context_target_dir=None):
+    """Get project root from context or default to current directory"""
+    if context_target_dir:
+        return Path(context_target_dir)
+    return Path(os.getcwd())
 
 
 def format_files_for_prompt(files: List[File]) -> str:
@@ -32,7 +38,7 @@ def format_files_for_prompt(files: List[File]) -> str:
     return "\n\n".join(formatted_files)
 
 
-def get_gitignore_spec():
+def get_gitignore_spec(project_root: Path):
     # Generate gitignore path
     gitignore_path = project_root / ".gitignore"
 
@@ -46,9 +52,9 @@ def get_gitignore_spec():
     return spec
 
 
-def get_valid_file_paths(paths_found: List[Path]) -> List[Path]:
+def get_valid_file_paths(paths_found: List[Path], project_root: Path) -> List[Path]:
     valid_paths = []
-    spec = get_gitignore_spec()
+    spec = get_gitignore_spec(project_root)
     for p in paths_found:
         # Convert to relative path
         relative_path = p.relative_to(project_root).as_posix()
@@ -58,11 +64,11 @@ def get_valid_file_paths(paths_found: List[Path]) -> List[Path]:
     return valid_paths
 
 
-def check_file_ambiguity(file: File) -> dict:
+def check_file_ambiguity(file: File, project_root: Path) -> dict:
     # Get all matching paths in the project
     paths_found = list(project_root.rglob(file.file_name))
     # Now filter out the paths that are in gitignore
-    valid_paths = get_valid_file_paths(paths_found)
+    valid_paths = get_valid_file_paths(paths_found, project_root)
 
     # There are two scenarios here:
     # 1. file.file_path is None and there are multiple valid paths for certain file name.
@@ -110,6 +116,7 @@ def contruct_file_path_confirmation_prompt(
     return file_path_confirmation_prompt
 
 
-def get_dependencies(file_path: str) -> List[Dependency]:
+def get_dependencies(file_path: str, project_root: Path) -> List[Dependency]:
+    dependency_map = generate_dependency_map(str(project_root))
     deps_data = dependency_map.get(file_path, [])
     return [Dependency(file_name=d["name"], file_path=d["path"]) for d in deps_data]
