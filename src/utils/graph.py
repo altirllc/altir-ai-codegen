@@ -51,3 +51,18 @@ def get_files_to_reverse(
                 )
             )
     return final_files
+
+
+def insert_steps(plan: list[str], index: int, new_steps: list[str]) -> list[str]:
+    """
+    Inserts new_steps into plan at the given index.
+
+    Args:
+        plan (list[str]): The current execution plan.
+        index (int): The position at which to insert new_steps.
+        new_steps (list[str]): The steps to insert.
+
+    Returns:
+        list[str]: A new plan with the steps inserted.
+    """
+    return plan[:index] + new_steps + plan[index:]

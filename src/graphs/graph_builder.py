@@ -3,6 +3,8 @@ from src.states.code_assistant_state import CodeAssistantState
 from langgraph.checkpoint.memory import InMemorySaver
 from src.nodes.code_assistant_nodes import CodeAssistantNodes
 from src.context_schema.code_assistant_context_schema import CodeAssistantContextSchema
+
+
 class GraphBuilder:
     def __init__(self):
         self.graph = StateGraph(CodeAssistantState, context=CodeAssistantContextSchema)
@@ -11,9 +13,16 @@ class GraphBuilder:
         code_assistant_nodes = CodeAssistantNodes()
         self.graph.add_node("prepare_llm", code_assistant_nodes.prepare_llm)
         self.graph.add_node("strategic_planner", code_assistant_nodes.strategic_planner)
+        self.graph.add_node(
+            "strategic_replanner", code_assistant_nodes.strategic_replanner
+        )
         self.graph.add_node("task_executor", code_assistant_nodes.task_executor)
-        self.graph.add_node("workflow_completed", code_assistant_nodes.workflow_completed)
-        self.graph.add_node("workflow_terminated", code_assistant_nodes.workflow_terminated)
+        self.graph.add_node(
+            "workflow_completed", code_assistant_nodes.workflow_completed
+        )
+        self.graph.add_node(
+            "workflow_terminated", code_assistant_nodes.workflow_terminated
+        )
 
         # Add edges to the graph
         self.graph.add_edge(START, "prepare_llm")

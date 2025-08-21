@@ -6,6 +6,7 @@ from src.models.file import File
 from pydantic import BaseModel
 from pathlib import Path
 
+
 class CodeAssistantState(BaseModel):
     messages: Annotated[List[BaseMessage], add_messages]
     files: Optional[List[File]] = None
@@ -17,9 +18,10 @@ class CodeAssistantState(BaseModel):
     ambiguous_files: List[Tuple[str, List[Path], Optional[str]]] = []
     decision: Optional[Literal["accept", "reject"]] = None
     additional_query: Optional[str] = None
-    does_llm_need_more_files: bool = False
+    has_llm_updated_files: bool = False
+    required_files: Optional[List[File]] = None
 
     # Planning & Execution
-    execution_plan: List[str] = []           # Current list of planned steps
-    current_step_index: int = 0              # Which step to execute next
-    step_executed: Optional[str] = None      # Step that was executed
+    execution_plan: List[str] = []  # Current list of planned steps
+    current_step_index: int = 0  # Which step to execute next
+    step_executed: Optional[str] = None  # Step that was executed

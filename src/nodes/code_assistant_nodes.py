@@ -13,75 +13,169 @@ from src.utils.file import project_root, get_valid_file_paths
 from src.models.llm_analyse_edit_output import LLMAnalyseEditOutput
 from src.models.decode_file_name import DecodeFileNameOutput
 from src.models.analyse_human_feedback import AnalyseHumanFeedbackOutput
-from src.utils.graph import get_files_to_reverse
+from src.utils.graph import get_files_to_reverse, insert_steps
 from langgraph.runtime import Runtime
 from src.llm_providers.openai import OpenAIProvider
 from src.context_schema.code_assistant_context_schema import CodeAssistantContextSchema
-   
+from src.utils.logger import logger
 class CodeAssistantNodes:
     def __init__(self):
         self.code_assistant_chains = CodeAssistantChains()
         self.llm = None
 
-    def prepare_llm(self, state: CodeAssistantState, runtime: Runtime[CodeAssistantContextSchema]):
+    def prepare_llm( self, state: CodeAssistantState, runtime: Runtime[CodeAssistantContextSchema]):
+        logger.log_step_start("prepare_llm", "Setting up AI model configuration")
         requested_llm = getattr(runtime, "context", {}).get("model_provider", "")
         requested_model = getattr(runtime, "context", {}).get("model_name", "")
-        if requested_llm == "openai":
-            self.llm = OpenAIProvider(model_name=requested_model).get_llm()
-        elif requested_llm == "groq":
-            self.llm = GroqProvider(model_name=requested_model).get_llm()
     
+        logger.log_step_info(f"Provider: {requested_llm.upper()}")
+        logger.log_step_info(f"Model: {requested_model}")
+    
+        try:
+            if requested_llm == "openai":
+                logger.log_step_info("Initializing OpenAI provider...")
+                self.llm = OpenAIProvider(model_name=requested_model).get_llm()
+                logger.log_step_success(f"OpenAI {requested_model} ready")
+            
+            elif requested_llm == "groq":
+                logger.log_step_info("Initializing Groq provider...")
+                self.llm = GroqProvider(model_name=requested_model).get_llm()
+                logger.log_step_success(f"Groq {requested_model} ready")
+            
+            else:
+                logger.log_step_info(f"⚠️  Unknown provider: {requested_llm}")
+           
+            logger.log_step_complete("prepare_llm")
+        
+        except Exception as e:
+            logger.log_step_info(f"│  ❌ Error: {str(e)}")
+            logger.log_step_complete("prepare_llm")
+            raise
+
     def strategic_planner(self, state: CodeAssistantState):
-        print('\n')
-        print("Inside Strategic Planner")
+        logger.log_step_start("strategic_planner", "Creating execution plan based on user request")
+
+        try:
+            user_message = state.messages[-1].content if state.messages else "No message"
+            display_message = user_message[:60] + "..." if len(user_message) > 60 else user_message
+            logger.log_step_info(f"Analyzing request: '{display_message}'")
+        
+            # Create and invoke the strategic planner chain
+            logger.log_step_info("Generating strategic plan...")
+            strategic_planner_chain = (
+                self.code_assistant_chains.create_strategic_planner_chain(self.llm)
+            )
+        
+            output: StrategicPlannerOutput = strategic_planner_chain.invoke(
+                {
+                    "messages": state.messages,
+                }
+            )
+        
+            logger.log_step_success("Plan generated successfully!")
+            logger.log_execution_plan(output.plan)
+        
+            # Complete the step
+            logger.log_step_complete("strategic_planner")
+        
+            return {
+                "execution_plan": output.plan,
+            }
+        
+        except Exception as e:
+            print(f"│  ❌ Error creating plan: {str(e)}")
+            logger.log_step_complete("strategic_planner")
+            raise
+
+    def strategic_replanner(self, state: CodeAssistantState):
         strategic_planner_chain = (
             self.code_assistant_chains.create_strategic_planner_chain(self.llm)
         )
-        is_replanning_needed = bool(state.ambiguous_files) or bool(state.decision) or bool(state.additional_query) or bool(state.does_llm_need_more_files)
         is_ambiguous = bool(state.ambiguous_files)
-        decision = "Changed Accepted" if state.decision == "accept" else "Changed Rejected" if state.decision == "reject" else "No Decision yet"
-        strategic_planner_output: StrategicPlannerOutput = strategic_planner_chain.invoke(
-            {
-                "messages": state.messages,
-                "is_replanning_needed": is_replanning_needed,
-                "step_number_to_replan_from": state.current_step_index + 1 if is_replanning_needed else 'NA',
-                "execution_plan": state.execution_plan or "No Execution Plan created yet.",
-                "is_ambiguous": is_ambiguous,
-                "decision": decision,
-                "does_llm_need_more_files": state.does_llm_need_more_files
-            }
+        is_decision_taken = bool(state.decision)
+        is_additional_query_given = bool(state.additional_query)
+        does_llm_need_more_files = bool(state.required_files)
+        is_replanning_needed = (
+            is_ambiguous
+            or is_decision_taken
+            or is_additional_query_given
+            or does_llm_need_more_files
         )
-        print("Strategic Planner Plan: ", strategic_planner_output.plan)
-        return {
-            "execution_plan": strategic_planner_output.plan,
-        }
-    
+
+        if is_replanning_needed:
+            updated_plan = []
+            if is_ambiguous:
+                updated_plan = insert_steps(
+                    state.execution_plan,
+                    state.current_step_index,
+                    ["resolve_ambiguity", "analyse_feedback"],
+                )
+            if is_decision_taken:
+                updated_plan = insert_steps(
+                    state.execution_plan,
+                    state.current_step_index,
+                    (
+                        ["approved_path"]
+                        if state.decision == "accept"
+                        else ["rejected_path"]
+                    ),
+                )
+            if is_additional_query_given:
+                updated_plan = insert_steps(
+                    state.execution_plan, state.current_step_index, ["decode_files"]
+                )
+            if does_llm_need_more_files:
+                if state.has_llm_updated_files:
+                    updated_plan = insert_steps(
+                        state.execution_plan,
+                        state.current_step_index,
+                        ["update_file", "fetch_files", "llm_call"],
+                    )
+                else:
+                    updated_plan = insert_steps(
+                        state.execution_plan,
+                        state.current_step_index,
+                        ["fetch_files", "llm_call"],
+                    )
+            return {
+                "execution_plan": updated_plan,
+            }
+        else:
+            output: StrategicPlannerOutput = strategic_planner_chain.invoke(
+                {
+                    "messages": state.messages,
+                }
+            )
+            return {
+                "execution_plan": output.plan,
+            }
+
     def task_executor(self, state: CodeAssistantState):
         # execute the step and update the state
-        print('\n')
-        print("Inside Task executor")
         if not state.execution_plan:
+            logger.log_task_execution_error("No plan available")
             return Command(
-                        goto="workflow_terminated",
-                        update={
-                            "summary": 'Workflow Terminated due to some unexpected error',
-                            "files": None,
-                            "current_step_index": 0,
-                            "execution_plan": [],
-                            "completed_tasks": [],
-                            "step_executed": None,
-                            "file_path_confirmation_prompt": None,
-                            "human_feedback": None,
-                            "decision": None,
-                            "ambiguous_files": [],
-                        },
-                    )        
+                goto="workflow_terminated",
+                update={
+                    "summary": "Workflow Terminated due to some unexpected error",
+                    "files": None,
+                    "current_step_index": 0,
+                    "execution_plan": [],
+                    "completed_tasks": [],
+                    "step_executed": None,
+                    "file_path_confirmation_prompt": None,
+                    "human_feedback": None,
+                    "decision": None,
+                    "ambiguous_files": [],
+                },
+            )
         task = state.execution_plan[state.current_step_index]
-        print("Current Task: ", task)
-        print('\n')
+        total_steps = len(state.execution_plan)
+        logger.log_task_execution_start(state.current_step_index, total_steps, task)
+        
         is_replanning_needed = False
         should_terminate = False
-        summary = ''
+        summary = ""
         files = None
         new_step_index = state.current_step_index
         step_executed = state.step_executed
@@ -92,103 +186,80 @@ class CodeAssistantNodes:
         messages = []
         decision = None
         additional_query = None
-        does_llm_need_more_files = False
+        has_llm_updated_files = False
+        required_files = None
+        logger.log_step_info(f"Starting work...")
         if task == "decode_files":
             result = self.decode_files(state)
             is_replanning_needed = result.get("is_replanning_needed", False)
             should_terminate = result.get("should_terminate", False)
-            summary = result.get("summary", '')
+            summary = result.get("summary", "")
             files = result.get("files", None)
             ambiguous_files = result.get("ambiguous_files", [])
-            new_step_index = new_step_index + 1
-            are_steps_completed = new_step_index == len(state.execution_plan)
         if task == "resolve_ambiguity":
             result = self.resolve_ambiguity(state)
             is_replanning_needed = result.get("is_replanning_needed", False)
             should_terminate = result.get("should_terminate", False)
-            summary = result.get("summary", '')
+            summary = result.get("summary", "")
             files = result.get("files", state.files)
-            file_path_confirmation_prompt = result.get("file_path_confirmation_prompt", None)
+            file_path_confirmation_prompt = result.get(
+                "file_path_confirmation_prompt", None
+            )
             human_feedback = result.get("human_feedback", None)
-            new_step_index = new_step_index + 1
-            are_steps_completed = new_step_index == len(state.execution_plan)
         if task == "analyse_feedback":
             result = self.analyse_feedback(state)
             is_replanning_needed = result.get("is_replanning_needed", False)
             should_terminate = result.get("should_terminate", False)
-            summary = result.get("summary", '')
+            summary = result.get("summary", "")
             files = result.get("files", state.files)
             messages = result.get("messages", state.messages)
             additional_query = result.get("additional_query", None)
-            new_step_index = new_step_index + 1
-            are_steps_completed = new_step_index == len(state.execution_plan)
         if task == "fetch_files":
             result = self.fetch_files(state)
             is_replanning_needed = result.get("is_replanning_needed", False)
             should_terminate = result.get("should_terminate", False)
-            summary = result.get("summary", '')
+            summary = result.get("summary", "")
             files = result.get("files", state.files)
-            new_step_index = new_step_index + 1
-            are_steps_completed = new_step_index == len(state.execution_plan)
         if task == "llm_call":
             result = self.llm_call(state)
             is_replanning_needed = result.get("is_replanning_needed", False)
             should_terminate = result.get("should_terminate", False)
-            summary = result.get("summary", '')
+            summary = result.get("summary", "")
             files = result.get("files", state.files)
-            does_llm_need_more_files = result.get("does_llm_need_more_files", False)
-            new_step_index = new_step_index + 1
-            are_steps_completed = new_step_index == len(state.execution_plan)
+            required_files = result.get("required_files", None)
+            has_llm_updated_files = result.get("has_llm_updated_files", False)
         if task == "update_file":
             result = self.update_file(state)
             is_replanning_needed = result.get("is_replanning_needed", False)
             should_terminate = result.get("should_terminate", False)
             summary = result.get("summary", state.summary)
             files = result.get("files", state.files)
-            new_step_index = new_step_index + 1
-            are_steps_completed = new_step_index == len(state.execution_plan)
         if task == "human_approval":
             result = self.human_approval(state)
             is_replanning_needed = result.get("is_replanning_needed", False)
             should_terminate = result.get("should_terminate", False)
-            summary = result.get("summary", '')
+            summary = result.get("summary", "")
             files = result.get("files", state.files)
             decision = result.get("decision", None)
-            new_step_index = new_step_index + 1
-            are_steps_completed = new_step_index == len(state.execution_plan)
-        if task == "approved_path": 
+        if task == "approved_path":
             result = self.approved_path(state)
             is_replanning_needed = result.get("is_replanning_needed", False)
             should_terminate = result.get("should_terminate", False)
-            summary = result.get("summary", '')
-            new_step_index = new_step_index + 1
-            are_steps_completed = new_step_index == len(state.execution_plan)
-        if task == "rejected_path": 
+            summary = result.get("summary", "")
+        if task == "rejected_path":
             result = self.rejected_path(state)
             is_replanning_needed = result.get("is_replanning_needed", False)
             should_terminate = result.get("should_terminate", False)
             files = result.get("files", state.files)
-            summary = result.get("summary", '')
-            new_step_index = new_step_index + 1
-            are_steps_completed = new_step_index == len(state.execution_plan)
+            summary = result.get("summary", "")
 
-        step_executed = task    
-        print("Finished Task: ", task)
-        print("Is replanning needed: ", is_replanning_needed)
-        print("New step index: ", new_step_index)
-        print("Are steps completed: ", are_steps_completed)
-        print("Should terminate: ", should_terminate)
-        print("Summary: ", summary)
-        print("Files: ", files)
-        print("File path confirmation prompt: ", file_path_confirmation_prompt)
-        print("Human feedback: ", human_feedback)
-        print("Decision: ", decision)
-        
-        print('\n')
+        new_step_index = new_step_index + 1
+        are_steps_completed = new_step_index == len(state.execution_plan)
+        step_executed = task
 
         if is_replanning_needed:
             return Command(
-                goto="strategic_planner",
+                goto="strategic_replanner",
                 update={
                     "summary": summary,
                     "ambiguous_files": ambiguous_files,
@@ -198,7 +269,8 @@ class CodeAssistantNodes:
                     "step_executed": step_executed,
                     "files": files,
                     "additional_query": additional_query,
-                    "does_llm_need_more_files": does_llm_need_more_files
+                    "required_files": required_files,
+                    "has_llm_updated_files": has_llm_updated_files,
                 },
             )
         else:
@@ -212,7 +284,8 @@ class CodeAssistantNodes:
                         "execution_plan": [],
                         "completed_tasks": [],
                         "step_executed": step_executed,
-                        "does_llm_need_more_files": does_llm_need_more_files
+                        "required_files": required_files,
+                        "has_llm_updated_files": has_llm_updated_files,
                     },
                 )
             else:
@@ -226,7 +299,8 @@ class CodeAssistantNodes:
                             "execution_plan": [],
                             "completed_tasks": [],
                             "step_executed": step_executed,
-                            "does_llm_need_more_files": does_llm_need_more_files
+                            "required_files": required_files,
+                            "has_llm_updated_files": has_llm_updated_files,
                         },
                     )
                 else:
@@ -239,7 +313,8 @@ class CodeAssistantNodes:
                             "file_path_confirmation_prompt": file_path_confirmation_prompt,
                             "human_feedback": human_feedback,
                             "step_executed": step_executed,
-                            "does_llm_need_more_files": does_llm_need_more_files
+                            "required_files": required_files,
+                            "has_llm_updated_files": has_llm_updated_files,
                         },
                     )
 
@@ -249,47 +324,85 @@ class CodeAssistantNodes:
     def workflow_terminated(self, state: CodeAssistantState):
         print("Workflow terminated")
 
+    from src.utils.logger import logger
+
     def decode_files(self, state: CodeAssistantState):
+        logger.log_step_info("Looking at your message to find file names...")
+        
+        # Check if we already have files from previous steps
         if state.files:
+            logger.log_step_info("Using files from previous steps")
             formatted_files = format_files_for_prompt(state.files)
         else:
-            formatted_files = []        
+            logger.log_step_info("Starting fresh file search")
+            formatted_files = []
+        
+        # Create and run the file decoder
+        logger.log_step_info("Analyzing your request for file references...")
         decode_file_name_chain = (
             self.code_assistant_chains.create_decode_file_name_chain(self.llm)
         )
+        
         decoded_files: DecodeFileNameOutput = decode_file_name_chain.invoke(
             {
                 "messages": state.messages,
                 "formatted_files": formatted_files or "No Existing Files Found.",
             }
         )
-        # Initialize list to store ambiguous files
-        ambiguous_files = []
-
-        # Check for ambiguous files
-        for file in decoded_files.files:
-            if not file.file_name:
-                continue
-            result = check_file_ambiguity(file)
-            if result.get("is_ambiguous", True) or result.get("is_ambigious_and_invalid_file_path", True):
-                user_provided_path = (
-                    file.file_path if result.get("is_ambigious_and_invalid_file_path", False) else None
-                )
-                ambiguous_files.append((file.file_name, result.get("valid_paths", []), user_provided_path))
-
+        
+        # Log what we found
+        if hasattr(decoded_files, 'files') and decoded_files.files:
+            logger.log_files_found(len(decoded_files.files))
+        else:
+            logger.log_files_found(0)
+        
+        # Check if the AI thinks we should stop here
         if decoded_files.should_end:
+            logger.log_workflow_ending("Request completed - no files needed")
+            if hasattr(decoded_files, 'summary') and decoded_files.summary:
+                logger.log_step_info(f"Response: {decoded_files.summary}")
             return {
                 "should_terminate": True,
                 "is_replanning_needed": False,
                 "summary": decoded_files.summary,
             }
+        
+        # Initialize list to store unclear file paths
+        ambiguous_files = []
+        
+        # Check each file to see if we can find it clearly
+        logger.log_step_info("Checking if file paths are clear...")
+        
+        for file in decoded_files.files:
+            if not file.file_name:
+                continue
+                
+            result = check_file_ambiguity(file)
+            if result.get("is_ambiguous", True) or result.get("is_ambigious_and_invalid_file_path", True):
+                user_provided_path = (
+                    file.file_path
+                    if result.get("is_ambigious_and_invalid_file_path", False)
+                    else None
+                )
+                ambiguous_files.append(
+                    (file.file_name, result.get("valid_paths", []), user_provided_path)
+                )
+        
+        # Handle ambiguous files
         if ambiguous_files:
+            logger.log_ambiguous_files(len(ambiguous_files))
             return {
                 "should_terminate": False,
                 "is_replanning_needed": True,
                 "ambiguous_files": ambiguous_files,
                 "files": decoded_files.files,
             }
+        
+        # Success case - all files are clear
+        logger.log_step_success("All file paths are clear and ready to use")
+        if hasattr(decoded_files, 'summary') and decoded_files.summary:
+            logger.log_step_info(f"Summary: {decoded_files.summary}")
+        
         return {
             "should_terminate": False,
             "is_replanning_needed": False,
@@ -360,11 +473,19 @@ class CodeAssistantNodes:
         }
 
     def fetch_files(self, state: CodeAssistantState):
-        for file in state.files:
+        updated_files = state.files + (
+            state.required_files if state.required_files else []
+        )
+        for file in updated_files:
             if not file.file_name:
                 continue
             if file.file_path:
-                print("File path already exists - file name: ", file.file_name, "file path: ", file.file_path)
+                print(
+                    "File path already exists - file name: ",
+                    file.file_name,
+                    "file path: ",
+                    file.file_path,
+                )
                 # we have file path already
                 resolved_path = Path(file.file_path)
                 if resolved_path.is_absolute():
@@ -408,9 +529,7 @@ class CodeAssistantNodes:
 
         if found_files:
             val = len(found_files) > 1 and "s" or ""
-            summary_parts.append(
-                f"I found the file{val} - {', '.join(found_files)}."
-            )
+            summary_parts.append(f"I found the file{val} - {', '.join(found_files)}.")
             summary_parts.append(
                 f"Please wait a moment.. Let me analyse the file{val}."
             )
@@ -419,18 +538,20 @@ class CodeAssistantNodes:
             summary_parts.append(
                 f"I couldn't find these file{len(missing_files) > 1 and 's' or ''} - {', '.join(missing_files)}."
             )
-        
+
         summary = "\n".join(summary_parts)
         return {
             "is_replanning_needed": False,
             "should_terminate": False,
-            "files": state.files, 
-            "summary": summary
+            "files": updated_files,
+            "summary": summary,
         }
 
     def llm_call(self, state: CodeAssistantState):
         formatted_files = format_files_for_prompt(state.files)
-        analyse_update_chain = self.code_assistant_chains.create_analyse_update_chain(self.llm)
+        analyse_update_chain = self.code_assistant_chains.create_analyse_update_chain(
+            self.llm
+        )
         llm_output: LLMAnalyseEditOutput = analyse_update_chain.invoke(
             {
                 "messages": state.messages,
@@ -442,16 +563,17 @@ class CodeAssistantNodes:
             return {
                 "is_replanning_needed": True,
                 "should_terminate": False,
-                "files": llm_output.files + llm_output.required_files,
+                "files": llm_output.files,
+                "required_files": llm_output.required_files,
                 "summary": llm_output.summary,
-                "does_llm_need_more_files": True,
+                "has_llm_updated_files": llm_output.is_update,
             }
         return {
             "is_replanning_needed": False,
             "should_terminate": False,
             "files": llm_output.files,
             "summary": llm_output.summary,
-            "does_llm_need_more_files": False,
+            "has_llm_updated_files": llm_output.is_update,
         }
 
     def update_file(self, state: CodeAssistantState):
@@ -476,34 +598,36 @@ class CodeAssistantNodes:
             }
         )
         decision: str = interrupt_response.get("decision", "")
-        states_history: list[StateSnapshot] = interrupt_response.get("state_history", [])
-        print('\n')
-        print("States history: ", states_history)  
-        print('\n')
+        states_history: list[StateSnapshot] = interrupt_response.get(
+            "state_history", []
+        )
         # Get the state of graph before llm call and after update file
         state_before_llm_call: StateSnapshot | None = None
         state_after_llm_call: StateSnapshot | None = None
         if states_history:
             for each_state in states_history:
-                if getattr(each_state, "values", None).get("step_executed", "") == "fetch_files":
+                if (
+                    getattr(each_state, "values", None).get("step_executed", "")
+                    == "fetch_files"
+                ):
                     state_before_llm_call = each_state
-                if getattr(each_state, "values", None).get("step_executed", "") == "llm_call":
+                if (
+                    getattr(each_state, "values", None).get("step_executed", "")
+                    == "llm_call"
+                ):
                     state_after_llm_call = each_state
         # Get the final list of files with their original content to reverse the changes in case of rejection
         files_to_reverse = get_files_to_reverse(
-            getattr(state_before_llm_call, "values", None).get("files", None), 
-            getattr(state_after_llm_call, "values", None).get("files", None)
+            getattr(state_before_llm_call, "values", None).get("files", None),
+            getattr(state_after_llm_call, "values", None).get("files", None),
         )
-        print("\n")
-        print("Files to reverse: ", files_to_reverse)
-        print("\n")
         return {
-                "is_replanning_needed": True,
-                "should_terminate": False,
-                "files": state.files if decision == "accept" else files_to_reverse,
-                "decision": decision,
-                "summary": ""
-            }
+            "is_replanning_needed": True,
+            "should_terminate": False,
+            "files": state.files if decision == "accept" else files_to_reverse,
+            "decision": decision,
+            "summary": "",
+        }
 
     def approved_path(self, state: CodeAssistantState):
         return {
@@ -514,9 +638,6 @@ class CodeAssistantNodes:
 
     def rejected_path(self, state: CodeAssistantState):
         # reverse the files to its original state
-        print('\n')
-        print("Inside Rejected Path", state.files)
-        print('\n')
         if state.files:
             for file in state.files:
                 # Use file_path if available, otherwise fallback to root/file_name

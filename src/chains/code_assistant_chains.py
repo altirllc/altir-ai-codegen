@@ -21,9 +21,7 @@ class CodeAssistantChains:
         decode_prompt_template = (
             self.code_assistant_templates.get_decode_prompt_template()
         )
-        return decode_prompt_template | llm.with_structured_output(
-            DecodeFileNameOutput
-        )
+        return decode_prompt_template | llm.with_structured_output(DecodeFileNameOutput)
 
     def create_analyse_feedback_chain(self, llm):
         analyse_feedback_prompt_template = (
