@@ -1,5 +1,5 @@
 from typing import List, Optional
-from dependency_map import dependency_map, generate_dependency_map
+from dependency_map import generate_dependency_map
 from src.models.file import Dependency, File
 from pathlib import Path
 import pathspec

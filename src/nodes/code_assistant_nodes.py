@@ -170,8 +170,6 @@ class CodeAssistantNodes:
         additional_query = None
         has_llm_updated_files = False
         required_files = None
-        task_description = logger.get_task_description(task)
-        logger.log_step_info(task_description)
         if task == "decode_files":
             result = self.decode_files(state)
             is_replanning_needed = result.get("is_replanning_needed", False)
@@ -581,7 +579,7 @@ class CodeAssistantNodes:
     def human_approval(self, state: CodeAssistantState):
         interrupt_response: dict = interrupt(
             {
-                "question": f"Here is the summary of changes \n {state.summary}\n Do you approve the output? Type 'accept' or 'reject':- ",
+                "question": f"Here is the summary of changes \n {state.summary}\n Do you approve the output?:- ",
                 "from": "human_approval",
             }
         )

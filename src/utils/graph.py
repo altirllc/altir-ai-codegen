@@ -1,7 +1,7 @@
 from langgraph.graph.state import CompiledStateGraph
 from src.models.file import File
 from src.states.code_assistant_state import CodeAssistantState
-
+import questionary
 
 def handle_interrupt(
     graph: CompiledStateGraph[CodeAssistantState], config: dict, chunk
@@ -17,7 +17,14 @@ def handle_interrupt(
     ):
         question = interrupt_response[0].value["question"]
         from_ = interrupt_response[0].value["from"]
-        user_input = input(question)
+        if from_ == "human_approval":
+            user_input = questionary.select(
+                question, choices=["accept", "reject"]
+            ).ask()
+        elif from_ == "human_feedback":
+            user_input = questionary.text(
+                question
+            ).ask()
         state_history = list(graph.get_state_history(config))
         if from_ == "human_approval":
             resume = {

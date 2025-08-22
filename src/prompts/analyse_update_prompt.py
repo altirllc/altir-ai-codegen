@@ -20,6 +20,9 @@ analyse_update_prompt = [
             2. Edit/refactor/update files only
             3. Analyse and edit both
 
+            User may also mention some files just for reference. You should analyse those files.
+            Intelligently select files to analyse and edit based on user messages and intent.
+
             Based on your understanding of the user messages and intent, take one of the above actions appropriately:
             1. If the user asked for code explanation/analysis only: Follow "Analyse" Section
             2. If the user asked for code edits, refactors, or bug fixes: Follow "Edit" Section
@@ -35,17 +38,52 @@ analyse_update_prompt = [
             - If none are needed, or no dependencies were provided, return an empty list for `required_files`.
             ## Context-Specific Rules:
 
-            ### For Analysis:
-            - Pick ONLY files whose contents are needed to **understand the logic** (functions/classes/constants/types that are referenced and materially affect behavior).
+            Context-Specific Rules for `required_files`:
+            For Analysis:
 
-            ### For Simple Edits:
-            - Always return `required_files: []` (empty list).
+            Primary Rule: If you have even 1 percent doubt that a dependency file would help you understand the target file better, include it in required_files.
+            Include files that define:
 
-            ### For Complex Edits:
-            - Pick files whose contents are needed to **safely make changes** without breaking integrations or functionality.
-            - Include files that define interfaces, base classes, or shared utilities that might be affected.
-            - Include files that might help identify the root cause of bugs or understand refactoring impact.
+            Functions, classes, constants, or types that are imported and used
+            Interfaces, base classes, or parent components
+            Configuration objects, schemas, or data structures referenced in the code
+            Utility functions or helper modules that affect behavior
+            Type definitions that would clarify the code's intent
 
+            Better to over-include than under-include - it's safer to request a file you might not need than to miss one you do need.
+
+            For Simple Edits:
+
+            Before assuming it's simple: First scan through the code changes you plan to make
+            Return required_files: [] ONLY if you are 100 percent confident that:
+
+            The changes are completely self-contained within the provided files
+            No imported functions/classes/types need to be understood to make the changes safely
+            The changes won't affect any interfaces or contracts with other files
+            You don't need to understand how imported utilities work to make the change correctly
+
+
+            If you have ANY doubt, treat it as a complex edit instead
+
+            For Complex Edits:
+
+            Primary Rule: Request ALL dependency files that might be relevant, even if you're only 50 percent sure you need them
+            Include files that contain:
+
+            Functions, classes, or components that you're modifying or that might be affected by your changes
+            Type definitions, interfaces, or schemas that define the contracts you're working with
+            Base classes, parent components, or utilities that your changes might impact
+            Configuration files or constants that might need to be updated alongside your changes
+            Any file where understanding its implementation would help you make better decisions
+
+
+            Err on the side of caution: It's much better to request extra files than to make incomplete changes
+
+            General Philosophy:
+
+            When in doubt, request it: If you're unsure whether a dependency is needed, always include it
+            Think holistically: Consider not just the immediate change, but also its ripple effects
+            Prefer complete understanding: It's better to have full context and not need it, than to lack context and make mistakes
             ---------------------------------------------------
 
             ## Analyse Section:

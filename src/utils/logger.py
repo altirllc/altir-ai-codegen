@@ -17,7 +17,7 @@ class SimpleLogger:
         self.step_times = {}
         # Natural language descriptions for plan steps
         self.plan_descriptions = {
-            "decode_files": "🔍 Looking at your message to understand what files you need",
+            "decode_files": "🔍 Looking at your request to understand what files you need",
             "fetch_files": "📥 Finding and reading the files from your project",
             "resolve_ambiguity": "🔍 Clarifying which files you meant",
             "analyse_feedback": "💬 Understanding your feedback",
